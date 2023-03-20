@@ -3,8 +3,9 @@
             [hbase-region-inspector.util :as util]
             [hbase-region-inspector.hbase.impl :as hbase-impl])
   (:import [org.apache.hadoop.hbase
-            client.HBaseAdmin util.Bytes
-            HBaseConfiguration ClusterStatus]
+            client.Admin util.Bytes ServerLoad
+            HBaseConfiguration ClusterStatus
+            client.ConnectionFactory RegionLoad]
            org.apache.hadoop.security.UserGroupInformation
            org.apache.hadoop.conf.Configuration))
 
@@ -12,12 +13,12 @@
   "Transforms ServerLoad object into clojure map"
   [load]
   (assoc
-    {:max-heap-mb        (.getMaxHeapMB load)
-     :used-heap-mb       (.getUsedHeapMB load)
-     :regions            (.getNumberOfRegions load)
-     :requests-rate      (.getNumberOfRequests load)
-     :store-files        (.getStorefiles load)
-     :store-file-size-mb (.getStorefileSizeInMB load)}
+    {:max-heap-mb        (.getMaxHeapMB ^ServerLoad load)
+     :used-heap-mb       (.getUsedHeapMB ^ServerLoad load)
+     :regions            (.getNumberOfRegions ^ServerLoad load)
+     :requests-rate      (.getNumberOfRequests ^ServerLoad load)
+     :store-files        (.getStorefiles ^ServerLoad load)
+     :store-file-size-mb (.getStorefileSizeInMB ^ServerLoad load)}
     :store-uncompressed-size-mb
     (some->> load
              str
@@ -42,17 +43,17 @@
   "Collects the region information. You can pass ClusterStatus object to avoid
   repetitive creation of it."
   ([admin]
-   (hbase-impl/collect-region-info admin (.getClusterStatus admin)))
+   (hbase-impl/collect-region-info admin (.getClusterStatus ^Admin admin)))
   ([admin cluster-status]
    (hbase-impl/collect-region-info admin cluster-status)))
 
 (defn collect-info
   "Collects server and region statistics"
   [admin]
-  (let [cluster-status (.getClusterStatus admin)]
+  (let [cluster-status (.getClusterStatus ^Admin admin)]
     {:servers      (doall (collect-server-info cluster-status))
      :regions      (doall (collect-region-info admin cluster-status))
-     :has-locality (-> (.getHBaseVersion cluster-status) first (not= \0))}))
+     :has-locality (-> (.getHBaseVersion ^ClusterStatus cluster-status) first (not= \0))}))
 
 (def bytes-comp
   "Comparator for byte arrays"
@@ -110,14 +111,12 @@
   (.getInt (build-hbase-conf conf) "hbase.regionserver.info.port" 60030))
 
 (defn connect-admin
-  "Creates HBaseAdmin instance with the given configuration.
-  TODO: HBaseAdmin is deprecated in favor of Admin in the recent versions of
-  HBase"
+  "Creates Admin instance with the given configuration."
   [conf]
-  (HBaseAdmin. (build-hbase-conf conf)))
+  (.getAdmin (ConnectionFactory/createConnection (build-hbase-conf conf))))
 
 (defmacro with-admin
-  "Evaluates body with HBaseAdmin created with conf bound to name and
+  "Evaluates body with Admin created with conf bound to name and
   finally closes it."
   [[name conf] & body]
-  `(with-open [~name (~connect-admin ~conf)] ~@body))
+  `(with-open [~name ^Admin (~connect-admin ~conf)] ~@body))
